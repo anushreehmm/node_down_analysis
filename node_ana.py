@@ -3,6 +3,7 @@
 
 import os
 import pandas as pd
+import re
 import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State
@@ -65,27 +66,21 @@ app.layout = dbc.Container(
         ),
         dbc.Row([
             dbc.Col([
-                html.Label("Upload File:", style={"color": "#000", "fontWeight": "bold"}),
-                dcc.Upload(id='upload-data', children=html.Button('Upload File'), multiple=False)
-            ], width=4),
+                html.Label("Upload File 1:", style={"color": "#000", "fontWeight": "bold"}),
+                dcc.Upload(id='upload-file1', children=html.Button('Upload File 1'), multiple=False)
+            ], width=6),
             dbc.Col([
-                html.Label("Select Downtime Count:", style={"color": "#000", "fontWeight": "bold"}),
-                dcc.Dropdown(
-                    id='downtime-dropdown',
-                    options=[
-                        {'label': '1-3', 'value': '1-3'},
-                        {'label': '4-5', 'value': '4-5'},
-                        {'label': '>5', 'value': '>5'}
-                    ],
-                    placeholder='Select downtime count criteria',
-                )
-            ], width=4),
-            dbc.Col(
-                dbc.Button("Apply Filters", id='filter-button', color="success"), width=4
-            )
+                html.Label("Upload File 2:", style={"color": "#000", "fontWeight": "bold"}),
+                dcc.Upload(id='upload-file2', children=html.Button('Upload File 2'), multiple=False)
+            ], width=6),
         ]),
         dbc.Row(
-            dbc.Col(dash_table.DataTable(id='filtered-table', style_table={'overflowX': 'auto'}), width=12)
+            dbc.Col(
+                dbc.Button("Merge and Display Data", id='merge-button', color="success"), width=12, className="mt-3"
+            )
+        ),
+        dbc.Row(
+            dbc.Col(dash_table.DataTable(id='merged-table', style_table={'overflowX': 'auto'}), width=12)
         )
     ]
 )
@@ -100,36 +95,34 @@ def decode_file(contents):
         print(f"Error decoding file: {e}")
         return None
 
-# Callback for file upload
+# Callback to handle file upload and merging
 @app.callback(
-    [Output('filtered-table', 'data')],
-    [Input('filter-button', 'n_clicks')],
-    [State('upload-data', 'contents'), State('downtime-dropdown', 'value')]
+    Output('merged-table', 'data'),
+    [Input('merge-button', 'n_clicks')],
+    [State('upload-file1', 'contents'), State('upload-file2', 'contents')]
 )
-def filter_data(n_clicks, contents, downtime_value):
-    if not n_clicks or not contents:
-        return [[]]
+def merge_files(n_clicks, file1_contents, file2_contents):
+    if not n_clicks or not file1_contents or not file2_contents:
+        return []
 
-    file = decode_file(contents)
-    if file is None:
-        return [[]]
+    # Decode and process File 1
+    file1 = decode_file(file1_contents)
+    if file1 is None or not re.search(file1_pattern, file1_contents):
+        return []
 
-    # Determine pattern key
-    pattern_key = "file1_pattern" if re.search(file1_pattern, contents) else "file2_pattern"
-    cleaned_df = data_clean(file, pattern_key)
+    df1 = data_clean(file1, "file1_pattern")
 
-    # Apply filters
-    if downtime_value:
-        if downtime_value == '1-3':
-            cleaned_df = cleaned_df[cleaned_df['Downtime Count'] <= 3]
-        elif downtime_value == '4-5':
-            cleaned_df = cleaned_df[(cleaned_df['Downtime Count'] >= 4) & (cleaned_df['Downtime Count'] <= 5)]
-        elif downtime_value == '>5':
-            cleaned_df = cleaned_df[cleaned_df['Downtime Count'] > 5]
+    # Decode and process File 2
+    file2 = decode_file(file2_contents)
+    if file2 is None or not re.search(file2_pattern, file2_contents):
+        return []
 
-    return [cleaned_df.to_dict('records')]
+    df2 = data_clean(file2, "file2_pattern")
+
+    # Merge datasets on 'Node Alias'
+    merged_df = pd.merge(df1, df2, on='Node Alias', how='inner')
+
+    return merged_df.to_dict('records')
 
 if __name__ == '__main__':
-    import os
-    port = int(os.environ.get("PORT", 8050))  # Use PORT environment variable or default to 8050
-    app.run_server(debug=False, host="0.0.0.0", port=port)
+    app.run_server(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 8050)))
