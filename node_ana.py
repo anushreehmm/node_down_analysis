@@ -196,7 +196,7 @@ dbc.Row(
         width=12
     )
 )
-    ]
+        ])
 # Callbacks
 @app.callback(
     Output('file1-status', 'children'),
