@@ -94,7 +94,7 @@ app.layout = dbc.Container(
                 html.Div(id='file1-status', style=success_message_style)
             ], width=6),
             dbc.Col([
-                html.Label("Upload Other Pattern File:", style=custom_label_style),
+                html.Label("Upload Second File:", style=custom_label_style),
                 dcc.Upload(id='upload-file2', children=html.Button('Upload Other Pattern File'), multiple=False),
                 html.Div(id='file2-status', style=success_message_style)
             ], width=6),
@@ -201,7 +201,7 @@ def handle_file2_upload(contents):
         global merged_df
         df2 = data_clean(file2, "file2_pattern")
         merged_df = pd.merge(merged_df, df2, on="Node Alias", how="inner")  # Merge data
-        return "Other Pattern File uploaded successfully!"
+        return "File uploaded successfully!"
     except Exception as e:
         return f"Error: {e}"
 
