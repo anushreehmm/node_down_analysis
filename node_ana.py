@@ -16,24 +16,20 @@ import base64
 file1_pattern = r"iBUS-Node-EVENT-TAJ_\d{1,2}(st|nd|rd|th) [A-Za-z]{3} \d{4} \d{2}_\d{2}_\d{2}\.xlsx"
 file2_pattern = r"iBUS-Taj_\d{1,2}(st|nd|rd|th) [A-Za-z]{3} \d{4} \d{2}_\d{2}_\d{2}\.xlsx"
 
-# Define global variables for date limits
-min_date = pd.Timestamp("2022-01-01")  # Replace with your data's minimum date
-max_date = pd.Timestamp.now()          # Replace with your data's maximum date
+# Global variables for processed data
+merged_df = pd.DataFrame()
 
 # Custom styles
 custom_label_style = {"color": "#000", "fontWeight": "bold"}
 custom_dropdown_style = {"width": "100%"}
+success_message_style = {"color": "green", "fontWeight": "bold"}
+error_message_style = {"color": "red", "fontWeight": "bold"}
 
 # Function to clean data
 def data_clean(file_path, pattern_key):
     try:
         df = pd.read_excel(file_path)
         if pattern_key == "file1_pattern":
-            required_columns = ['Unnamed: 0', 'Unnamed: 1', 'Unnamed: 4', 'Unnamed: 6', 'Unnamed: 2']
-            for col in required_columns:
-                if col not in df.columns:
-                    raise ValueError(f"Column {col} not found in File 1.")
-
             df = df.rename(columns={
                 'Unnamed: 0': 'Sl.no',
                 'Unnamed: 1': 'IP Address',
@@ -46,12 +42,6 @@ def data_clean(file_path, pattern_key):
             df['Alarm Time'] = pd.to_datetime(df['Alarm Time'], errors='coerce')
             df['Downtime Count'] = df.groupby('Node Alias')['Alarm Time'].transform('count')
         elif pattern_key == "file2_pattern":
-            required_columns = ['Unnamed: 0', 'Unnamed: 1', 'Unnamed: 4', 'Unnamed: 5', 'Unnamed: 6']
-            for col in required_columns:
-                if col not in df.columns:
-                    raise ValueError(f"Column {col} not found in File 2.")
-
-            df = df.drop([0, 1, 2, 3, 4], axis=0).reset_index(drop=True)
             df = df.rename(columns={
                 'Unnamed: 0': 'Node Alias',
                 'Unnamed: 1': 'IP Address',
@@ -63,12 +53,19 @@ def data_clean(file_path, pattern_key):
             df['Availability'] = pd.to_numeric(df['Availability'], errors='coerce')
             df['Latency(msec)'] = pd.to_numeric(df['Latency(msec)'], errors='coerce')
             df = df.dropna(subset=['Packet Loss(%)', 'Availability', 'Latency(msec)'])
-        else:
-            raise ValueError("Invalid pattern key specified.")
         return df
     except Exception as e:
         print(f"Error during data cleaning: {e}")
         return pd.DataFrame()
+
+# Helper function to decode uploaded file data
+def decode_file(contents):
+    try:
+        content_type, content_string = contents.split(',')
+        decoded = base64.b64decode(content_string)
+        return io.BytesIO(decoded)
+    except Exception as e:
+        raise ValueError(f"Error decoding file: {e}")
 
 # Initialize the Dash app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
@@ -89,6 +86,19 @@ app.layout = dbc.Container(
                 width=12
             )
         ),
+        # File Upload Section
+        dbc.Row([
+            dbc.Col([
+                html.Label("Upload Node File:", style=custom_label_style),
+                dcc.Upload(id='upload-file1', children=html.Button('Upload Node File'), multiple=False),
+                html.Div(id='file1-status', style=success_message_style)
+            ], width=6),
+            dbc.Col([
+                html.Label("Upload Other Pattern File:", style=custom_label_style),
+                dcc.Upload(id='upload-file2', children=html.Button('Upload Other Pattern File'), multiple=False),
+                html.Div(id='file2-status', style=success_message_style)
+            ], width=6),
+        ], className="mb-4"),
         # Filters Section
         dbc.Row(
             [
@@ -99,8 +109,6 @@ app.layout = dbc.Container(
                             id='date-range',
                             start_date=None,
                             end_date=None,
-                            min_date_allowed=min_date.date(),
-                            max_date_allowed=max_date.date(),
                             display_format='YYYY-MM-DD',
                             style=custom_dropdown_style
                         )
@@ -118,7 +126,7 @@ app.layout = dbc.Container(
                                 {'label': '>5', 'value': '>5'},
                                 {'label': '>10', 'value': '>10'}
                             ],
-                            value='1-3',
+                            value=None,
                             placeholder='Select downtime count criteria',
                             style=custom_dropdown_style
                         )
@@ -138,75 +146,85 @@ app.layout = dbc.Container(
         # Data Table Section
         dbc.Row(
             dbc.Col(
-                dbc.Card(
-                    [
-                        dbc.CardHeader(html.H4("Filtered Node Availability")),
-                        dbc.CardBody(
-                            dash_table.DataTable(
-                                id='filtered-table',
-                                columns=[
-                                    {'name': 'Node Alias', 'id': 'Node Alias'},
-                                    {'name': 'Availability', 'id': 'Availability'},
-                                    {'name': 'Downtime Count', 'id': 'Downtime Count'}
-                                ],
-                                style_table={'overflowX': 'auto'},
-                                style_cell={
-                                    'textAlign': 'left',
-                                    'padding': '10px',
-                                    'backgroundColor': '#2c2c2c',
-                                    'color': 'white'
-                                },
-                                style_header={
-                                    'backgroundColor': '#1a1a1a',
-                                    'color': 'white',
-                                    'fontWeight': 'bold'
-                                }
-                            )
-                        )
+                dash_table.DataTable(
+                    id='filtered-table',
+                    columns=[
+                        {'name': 'Node Alias', 'id': 'Node Alias'},
+                        {'name': 'Availability', 'id': 'Availability'},
+                        {'name': 'Downtime Count', 'id': 'Downtime Count'}
                     ],
-                    color="dark",
-                    outline=True
+                    style_table={'overflowX': 'auto'},
+                    style_cell={
+                        'textAlign': 'left',
+                        'padding': '10px',
+                        'backgroundColor': '#2c2c2c',
+                        'color': 'white'
+                    },
+                    style_header={
+                        'backgroundColor': '#1a1a1a',
+                        'color': 'white',
+                        'fontWeight': 'bold'
+                    }
                 ),
                 width=12
             )
-        ),
-        # Hidden Div for Storing Data
-        html.Div(id='filtered-data', style={'display': 'none'})
+        )
     ]
 )
 
-# Helper function to decode uploaded file data
-def decode_file(contents):
+# Callbacks
+@app.callback(
+    Output('file1-status', 'children'),
+    Input('upload-file1', 'contents')
+)
+def handle_file1_upload(contents):
+    if contents is None:
+        return ""
     try:
-        content_type, content_string = contents.split(',')
-        decoded = base64.b64decode(content_string)
-        return io.BytesIO(decoded)
+        file1 = decode_file(contents)
+        global merged_df
+        df1 = data_clean(file1, "file1_pattern")
+        merged_df = df1  # Store data for filtering
+        return "Node File uploaded successfully!"
     except Exception as e:
-        raise ValueError(f"Error decoding file: {e}")
+        return f"Error: {e}"
 
-# Callback for filtering
+@app.callback(
+    Output('file2-status', 'children'),
+    Input('upload-file2', 'contents')
+)
+def handle_file2_upload(contents):
+    if contents is None:
+        return ""
+    try:
+        file2 = decode_file(contents)
+        global merged_df
+        df2 = data_clean(file2, "file2_pattern")
+        merged_df = pd.merge(merged_df, df2, on="Node Alias", how="inner")  # Merge data
+        return "Other Pattern File uploaded successfully!"
+    except Exception as e:
+        return f"Error: {e}"
+
 @app.callback(
     Output('filtered-table', 'data'),
-    Output('filtered-data', 'children'),
     Input('filter-button', 'n_clicks'),
     State('date-range', 'start_date'),
     State('date-range', 'end_date'),
     State('downtime-dropdown', 'value')
 )
 def filter_data(n_clicks, start_date, end_date, downtime_value):
-    if n_clicks is None:
-        return [], ""
-
+    if n_clicks is None or merged_df.empty:
+        return []
+    
     filtered_df = merged_df.copy()
 
-    # Date filtering
+    # Apply filters
     if start_date and end_date:
         filtered_df = filtered_df[
             (filtered_df['Alarm Time'] >= pd.to_datetime(start_date)) & 
             (filtered_df['Alarm Time'] <= pd.to_datetime(end_date))
         ]
 
-    # Downtime Count Filtering
     if downtime_value:
         if downtime_value == '1-3':
             filtered_df = filtered_df[filtered_df['Downtime Count'] <= 3]
@@ -217,8 +235,7 @@ def filter_data(n_clicks, start_date, end_date, downtime_value):
         elif downtime_value == '>10':
             filtered_df = filtered_df[filtered_df['Downtime Count'] > 10]
 
-    table_data = filtered_df.to_dict('records')
-    return table_data, ""
+    return filtered_df.to_dict('records')
 
 if __name__ == '__main__':
-    app.run_server(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 8050)))
+    app.run_server(debug=True, host="0.0.0.0", port=8050)
