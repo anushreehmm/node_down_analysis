@@ -144,34 +144,59 @@ app.layout = dbc.Container(
             className="mb-4"
         ),
         # Data Table Section
-        dbc.Row(
-            dbc.Col(
-                dash_table.DataTable(
-                    id='filtered-table',
-                    columns=[
-                        {'name': 'Node Alias', 'id': 'Node Alias'},
-                        {'name': 'Availability', 'id': 'Availability'},
-                        {'name': 'Downtime Count', 'id': 'Downtime Count'}
-                    ],
-                    style_table={'overflowX': 'auto'},
-                    style_cell={
-                        'textAlign': 'left',
-                        'padding': '10px',
-                        'backgroundColor': '#2c2c2c',
-                        'color': 'white'
+# Data Table Section
+dbc.Row(
+    dbc.Col(
+        dash_table.DataTable(
+            id='filtered-table',
+            columns=[
+                {'name': 'Node Alias', 'id': 'Node Alias'},
+                {'name': 'Availability', 'id': 'Availability'},
+                {'name': 'Downtime Count', 'id': 'Downtime Count'}
+            ],
+            style_table={'overflowX': 'auto'},
+            style_cell={
+                'textAlign': 'left',
+                'padding': '10px',
+                'backgroundColor': '#2c2c2c',
+                'color': 'white'
+            },
+            style_header={
+                'backgroundColor': '#1a1a1a',
+                'color': 'white',
+                'fontWeight': 'bold'
+            },
+            style_data_conditional=[
+                {
+                    'if': {
+                        'filter_query': '{Availability} >= 97',
+                        'column_id': 'Availability'
                     },
-                    style_header={
-                        'backgroundColor': '#1a1a1a',
-                        'color': 'white',
-                        'fontWeight': 'bold'
-                    }
-                ),
-                width=12
-            )
-        )
-    ]
+                    'backgroundColor': '#28a745',  # Green
+                    'color': 'white'
+                },
+                {
+                    'if': {
+                        'filter_query': '{Availability} >= 90 && {Availability} < 97',
+                        'column_id': 'Availability'
+                    },
+                    'backgroundColor': '#ffc107',  # Yellow
+                    'color': 'black'
+                },
+                {
+                    'if': {
+                        'filter_query': '{Availability} < 90',
+                        'column_id': 'Availability'
+                    },
+                    'backgroundColor': '#dc3545',  # Red
+                    'color': 'white'
+                }
+            ]
+        ),
+        width=12
+    )
 )
-
+    ]
 # Callbacks
 @app.callback(
     Output('file1-status', 'children'),
