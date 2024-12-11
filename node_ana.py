@@ -95,7 +95,7 @@ app.layout = dbc.Container(
             ], width=6),
             dbc.Col([
                 html.Label("Upload Second File:", style=custom_label_style),
-                dcc.Upload(id='upload-file2', children=html.Button('Upload Other Pattern File'), multiple=False),
+                dcc.Upload(id='upload-file2', children=html.Button('Upload File- 2'), multiple=False),
                 html.Div(id='file2-status', style=success_message_style)
             ], width=6),
         ], className="mb-4"),
