@@ -12,9 +12,17 @@ import dash_bootstrap_components as dbc
 import io
 import base64
 
-# Define patterns for file identification (optional use, e.g., for testing)
+# Define patterns for file identification
 file1_pattern = r"iBUS-Node-EVENT-TAJ_\d{1,2}(st|nd|rd|th) [A-Za-z]{3} \d{4} \d{2}_\d{2}_\d{2}\.xlsx"
 file2_pattern = r"iBUS-Taj_\d{1,2}(st|nd|rd|th) [A-Za-z]{3} \d{4} \d{2}_\d{2}_\d{2}\.xlsx"
+
+# Define global variables for date limits
+min_date = pd.Timestamp("2022-01-01")  # Replace with your data's minimum date
+max_date = pd.Timestamp.now()          # Replace with your data's maximum date
+
+# Custom styles
+custom_label_style = {"color": "#000", "fontWeight": "bold"}
+custom_dropdown_style = {"width": "100%"}
 
 # Function to clean data
 def data_clean(file_path, pattern_key):
@@ -70,27 +78,100 @@ app.layout = dbc.Container(
     fluid=True,
     style={"backgroundColor": "#f5f5f5", "minHeight": "100vh", "padding": "20px"},
     children=[
-        dbc.Row(
-            dbc.Col(html.H1("Node Availability Report", className="text-center text-light bg-primary p-4 mb-4 rounded"), width=12)
-        ),
-        dbc.Row([
-            dbc.Col([
-                html.Label("Upload File 1:", style={"color": "#000", "fontWeight": "bold"}),
-                dcc.Upload(id='upload-file1', children=html.Button('Upload File 1'), multiple=False)
-            ], width=6),
-            dbc.Col([
-                html.Label("Upload File 2:", style={"color": "#000", "fontWeight": "bold"}),
-                dcc.Upload(id='upload-file2', children=html.Button('Upload File 2'), multiple=False)
-            ], width=6),
-        ]),
+        # Title Section
         dbc.Row(
             dbc.Col(
-                dbc.Button("Merge and Display Data", id='merge-button', color="success"), width=12, className="mt-3"
+                html.H1(
+                    "Node Availability Report",
+                    className="text-center text-light bg-primary p-4 mb-4 rounded",
+                    style={"fontSize": "36px", "font-family": "Roboto, sans-serif"}
+                ),
+                width=12
             )
         ),
+        # Filters Section
         dbc.Row(
-            dbc.Col(dash_table.DataTable(id='merged-table', style_table={'overflowX': 'auto'}), width=12)
-        )
+            [
+                dbc.Col(
+                    [
+                        html.Label("Select Date Range:", style=custom_label_style),
+                        dcc.DatePickerRange(
+                            id='date-range',
+                            start_date=None,
+                            end_date=None,
+                            min_date_allowed=min_date.date(),
+                            max_date_allowed=max_date.date(),
+                            display_format='YYYY-MM-DD',
+                            style=custom_dropdown_style
+                        )
+                    ],
+                    width=4
+                ),
+                dbc.Col(
+                    [
+                        html.Label("Select Downtime Count:", style=custom_label_style),
+                        dcc.Dropdown(
+                            id='downtime-dropdown',
+                            options=[
+                                {'label': '1-3', 'value': '1-3'},
+                                {'label': '4-5', 'value': '4-5'},
+                                {'label': '>5', 'value': '>5'},
+                                {'label': '>10', 'value': '>10'}
+                            ],
+                            value='1-3',
+                            placeholder='Select downtime count criteria',
+                            style=custom_dropdown_style
+                        )
+                    ],
+                    width=4
+                ),
+                dbc.Col(
+                    [
+                        html.Br(),
+                        dbc.Button("Apply Filters", id='filter-button', color="success")
+                    ],
+                    width=4
+                )
+            ],
+            className="mb-4"
+        ),
+        # Data Table Section
+        dbc.Row(
+            dbc.Col(
+                dbc.Card(
+                    [
+                        dbc.CardHeader(html.H4("Filtered Node Availability")),
+                        dbc.CardBody(
+                            dash_table.DataTable(
+                                id='filtered-table',
+                                columns=[
+                                    {'name': 'Node Alias', 'id': 'Node Alias'},
+                                    {'name': 'Availability', 'id': 'Availability'},
+                                    {'name': 'Downtime Count', 'id': 'Downtime Count'}
+                                ],
+                                style_table={'overflowX': 'auto'},
+                                style_cell={
+                                    'textAlign': 'left',
+                                    'padding': '10px',
+                                    'backgroundColor': '#2c2c2c',
+                                    'color': 'white'
+                                },
+                                style_header={
+                                    'backgroundColor': '#1a1a1a',
+                                    'color': 'white',
+                                    'fontWeight': 'bold'
+                                }
+                            )
+                        )
+                    ],
+                    color="dark",
+                    outline=True
+                ),
+                width=12
+            )
+        ),
+        # Hidden Div for Storing Data
+        html.Div(id='filtered-data', style={'display': 'none'})
     ]
 )
 
@@ -103,38 +184,41 @@ def decode_file(contents):
     except Exception as e:
         raise ValueError(f"Error decoding file: {e}")
 
-# Callback to handle file upload and merging
+# Callback for filtering
 @app.callback(
-    Output('merged-table', 'data'),
-    [Input('merge-button', 'n_clicks')],
-    [State('upload-file1', 'contents'), State('upload-file2', 'contents')]
+    Output('filtered-table', 'data'),
+    Output('filtered-data', 'children'),
+    Input('filter-button', 'n_clicks'),
+    State('date-range', 'start_date'),
+    State('date-range', 'end_date'),
+    State('downtime-dropdown', 'value')
 )
-def merge_files(n_clicks, file1_contents, file2_contents):
-    if not n_clicks or not file1_contents or not file2_contents:
-        return []
+def filter_data(n_clicks, start_date, end_date, downtime_value):
+    if n_clicks is None:
+        return [], ""
 
-    try:
-        # Decode and process File 1
-        file1 = decode_file(file1_contents)
-        df1 = data_clean(file1, "file1_pattern")
-        if df1.empty:
-            raise ValueError("File 1 processing returned an empty DataFrame.")
+    filtered_df = merged_df.copy()
 
-        # Decode and process File 2
-        file2 = decode_file(file2_contents)
-        df2 = data_clean(file2, "file2_pattern")
-        if df2.empty:
-            raise ValueError("File 2 processing returned an empty DataFrame.")
+    # Date filtering
+    if start_date and end_date:
+        filtered_df = filtered_df[
+            (filtered_df['Alarm Time'] >= pd.to_datetime(start_date)) & 
+            (filtered_df['Alarm Time'] <= pd.to_datetime(end_date))
+        ]
 
-        # Merge datasets on 'Node Alias'
-        if 'Node Alias' not in df1.columns or 'Node Alias' not in df2.columns:
-            raise ValueError("Missing 'Node Alias' column in one of the files.")
-        merged_df = pd.merge(df1, df2, on='Node Alias', how='inner')
+    # Downtime Count Filtering
+    if downtime_value:
+        if downtime_value == '1-3':
+            filtered_df = filtered_df[filtered_df['Downtime Count'] <= 3]
+        elif downtime_value == '4-5':
+            filtered_df = filtered_df[(filtered_df['Downtime Count'] >= 4) & (filtered_df['Downtime Count'] <= 5)]
+        elif downtime_value == '>5':
+            filtered_df = filtered_df[filtered_df['Downtime Count'] > 5]
+        elif downtime_value == '>10':
+            filtered_df = filtered_df[filtered_df['Downtime Count'] > 10]
 
-        return merged_df.to_dict('records')
-    except Exception as e:
-        print(f"Error during file merge: {e}")
-        return []
+    table_data = filtered_df.to_dict('records')
+    return table_data, ""
 
 if __name__ == '__main__':
     app.run_server(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 8050)))
