@@ -12,15 +12,20 @@ import dash_bootstrap_components as dbc
 import io
 import base64
 
-# Define patterns for file identification
+# Define patterns for file identification (optional use, e.g., for testing)
 file1_pattern = r"iBUS-Node-EVENT-TAJ_\d{1,2}(st|nd|rd|th) [A-Za-z]{3} \d{4} \d{2}_\d{2}_\d{2}\.xlsx"
 file2_pattern = r"iBUS-Taj_\d{1,2}(st|nd|rd|th) [A-Za-z]{3} \d{4} \d{2}_\d{2}_\d{2}\.xlsx"
 
 # Function to clean data
 def data_clean(file_path, pattern_key):
     try:
+        df = pd.read_excel(file_path)
         if pattern_key == "file1_pattern":
-            df = pd.read_excel(file_path, skiprows=5)
+            required_columns = ['Unnamed: 0', 'Unnamed: 1', 'Unnamed: 4', 'Unnamed: 6', 'Unnamed: 2']
+            for col in required_columns:
+                if col not in df.columns:
+                    raise ValueError(f"Column {col} not found in File 1.")
+
             df = df.rename(columns={
                 'Unnamed: 0': 'Sl.no',
                 'Unnamed: 1': 'IP Address',
@@ -32,11 +37,13 @@ def data_clean(file_path, pattern_key):
             df = df.dropna(subset=['Node Alias', 'Alarm Time'])
             df['Alarm Time'] = pd.to_datetime(df['Alarm Time'], errors='coerce')
             df['Downtime Count'] = df.groupby('Node Alias')['Alarm Time'].transform('count')
-            return df
         elif pattern_key == "file2_pattern":
-            df = pd.read_excel(file_path)
+            required_columns = ['Unnamed: 0', 'Unnamed: 1', 'Unnamed: 4', 'Unnamed: 5', 'Unnamed: 6']
+            for col in required_columns:
+                if col not in df.columns:
+                    raise ValueError(f"Column {col} not found in File 2.")
+
             df = df.drop([0, 1, 2, 3, 4], axis=0).reset_index(drop=True)
-            df = df.drop(columns=['Unnamed: 2', 'Unnamed: 3'], errors='ignore')
             df = df.rename(columns={
                 'Unnamed: 0': 'Node Alias',
                 'Unnamed: 1': 'IP Address',
@@ -48,7 +55,9 @@ def data_clean(file_path, pattern_key):
             df['Availability'] = pd.to_numeric(df['Availability'], errors='coerce')
             df['Latency(msec)'] = pd.to_numeric(df['Latency(msec)'], errors='coerce')
             df = df.dropna(subset=['Packet Loss(%)', 'Availability', 'Latency(msec)'])
-            return df
+        else:
+            raise ValueError("Invalid pattern key specified.")
+        return df
     except Exception as e:
         print(f"Error during data cleaning: {e}")
         return pd.DataFrame()
@@ -92,8 +101,7 @@ def decode_file(contents):
         decoded = base64.b64decode(content_string)
         return io.BytesIO(decoded)
     except Exception as e:
-        print(f"Error decoding file: {e}")
-        return None
+        raise ValueError(f"Error decoding file: {e}")
 
 # Callback to handle file upload and merging
 @app.callback(
@@ -105,24 +113,28 @@ def merge_files(n_clicks, file1_contents, file2_contents):
     if not n_clicks or not file1_contents or not file2_contents:
         return []
 
-    # Decode and process File 1
-    file1 = decode_file(file1_contents)
-    if file1 is None or not re.search(file1_pattern, file1_contents):
+    try:
+        # Decode and process File 1
+        file1 = decode_file(file1_contents)
+        df1 = data_clean(file1, "file1_pattern")
+        if df1.empty:
+            raise ValueError("File 1 processing returned an empty DataFrame.")
+
+        # Decode and process File 2
+        file2 = decode_file(file2_contents)
+        df2 = data_clean(file2, "file2_pattern")
+        if df2.empty:
+            raise ValueError("File 2 processing returned an empty DataFrame.")
+
+        # Merge datasets on 'Node Alias'
+        if 'Node Alias' not in df1.columns or 'Node Alias' not in df2.columns:
+            raise ValueError("Missing 'Node Alias' column in one of the files.")
+        merged_df = pd.merge(df1, df2, on='Node Alias', how='inner')
+
+        return merged_df.to_dict('records')
+    except Exception as e:
+        print(f"Error during file merge: {e}")
         return []
-
-    df1 = data_clean(file1, "file1_pattern")
-
-    # Decode and process File 2
-    file2 = decode_file(file2_contents)
-    if file2 is None or not re.search(file2_pattern, file2_contents):
-        return []
-
-    df2 = data_clean(file2, "file2_pattern")
-
-    # Merge datasets on 'Node Alias'
-    merged_df = pd.merge(df1, df2, on='Node Alias', how='inner')
-
-    return merged_df.to_dict('records')
 
 if __name__ == '__main__':
     app.run_server(debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 8050)))
