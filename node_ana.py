@@ -22,7 +22,9 @@ def data_clean_auto(file_path):
     Automatically detects the type of file based on its columns and processes it.
     """
     try:
-        df = pd.read_excel(file_path)
+        
+        df = pd.read_excel(file_path, skiprows=4)
+
 
         # Check the structure and process the file accordingly
         if 'Event' in df.columns and 'Alarm Time' in df.columns:  # File 1 (Node Events)
