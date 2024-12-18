@@ -38,14 +38,15 @@ def data_clean_auto(file_path):
             df['Alarm Time'] = pd.to_datetime(df['Alarm Time'], errors='coerce')
             df['Downtime Count'] = df.groupby('Node Alias')['Alarm Time'].transform('count')
             file_type = "file1"
-        elif 'Availability' in df.columns and 'Latency(msec)' in df.columns:  # File 2 (Taj Data)
+        elif 'Availability(%)' in df.columns and 'Latency(msec)' in df.columns:  # File 2 (Taj Data)
             df = df.rename(columns={
-                'Unnamed: 0': 'Node Alias',
-                'Unnamed: 1': 'IP Address',
-                'Unnamed: 4': 'Availability',
-                'Unnamed: 5': 'Latency(msec)',
-                'Unnamed: 6': 'Packet Loss(%)'
+                'Node Alias': 'Node Alias',
+                'IP Address': 'IP Address',
+                'Availability(%)': 'Availability',
+                'Latency(msec)': 'Latency(msec)',
+                'Packet Loss(%)': 'Packet Loss(%)'
             })
+            df = df.drop(columns=['Host Name', 'Description'], errors='ignore')
             df['Packet Loss(%)'] = pd.to_numeric(df['Packet Loss(%)'], errors='coerce')
             df['Availability'] = pd.to_numeric(df['Availability'], errors='coerce')
             df['Latency(msec)'] = pd.to_numeric(df['Latency(msec)'], errors='coerce')
