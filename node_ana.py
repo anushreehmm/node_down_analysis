@@ -12,13 +12,9 @@ import io
 import base64
 
 # Global variables for processed data
-merged_df = pd.DataFrame()
-
-# Custom styles
-custom_label_style = {"color": "#000", "fontWeight": "bold"}
-custom_dropdown_style = {"width": "100%"}
-success_message_style = {"color": "green", "fontWeight": "bold"}
-error_message_style = {"color": "red", "fontWeight": "bold"}
+file1_df = pd.DataFrame()  # For File 1 (Node Events)
+file2_df = pd.DataFrame()  # For File 2 (Taj Data)
+merged_df = pd.DataFrame()  # Combined dataframe
 
 # Function to clean and process data based on structure
 def data_clean_auto(file_path):
@@ -97,60 +93,21 @@ app.layout = dbc.Container(
         # File Upload Section
         dbc.Row([
             dbc.Col([
-                html.Label("Upload File:", style=custom_label_style),
-                dcc.Upload(id='upload-file', children=html.Button('Upload File'), multiple=True),
-                html.Div(id='file-status', style=success_message_style)
-            ], width=12)
+                html.Label("Upload Node Events File (File 1):", style={"fontWeight": "bold"}),
+                dcc.Upload(id='upload-file1', children=html.Button('Upload File 1'), multiple=False),
+                html.Div(id='file1-status', style={"color": "green", "fontWeight": "bold"})
+            ], width=6),
+            dbc.Col([
+                html.Label("Upload Taj Data File (File 2):", style={"fontWeight": "bold"}),
+                dcc.Upload(id='upload-file2', children=html.Button('Upload File 2'), multiple=False),
+                html.Div(id='file2-status', style={"color": "green", "fontWeight": "bold"})
+            ], width=6)
         ], className="mb-4"),
-        # Filters Section
-        dbc.Row(
-            [
-                dbc.Col(
-                    [
-                        html.Label("Select Date Range:", style=custom_label_style),
-                        dcc.DatePickerRange(
-                            id='date-range',
-                            start_date=None,
-                            end_date=None,
-                            display_format='YYYY-MM-DD',
-                            style=custom_dropdown_style
-                        )
-                    ],
-                    width=4
-                ),
-                dbc.Col(
-                    [
-                        html.Label("Select Downtime Count:", style=custom_label_style),
-                        dcc.Dropdown(
-                            id='downtime-dropdown',
-                            options=[
-                                {'label': '1-3', 'value': '1-3'},
-                                {'label': '4-5', 'value': '4-5'},
-                                {'label': '>5', 'value': '>5'},
-                                {'label': '>10', 'value': '>10'}
-                            ],
-                            value=None,
-                            placeholder='Select downtime count criteria',
-                            style=custom_dropdown_style
-                        )
-                    ],
-                    width=4
-                ),
-                dbc.Col(
-                    [
-                        html.Br(),
-                        dbc.Button("Apply Filters", id='filter-button', color="success")
-                    ],
-                    width=4
-                )
-            ],
-            className="mb-4"
-        ),
         # Data Table Section
         dbc.Row(
             dbc.Col(
                 dash_table.DataTable(
-                    id='filtered-table',
+                    id='merged-table',
                     columns=[],
                     style_table={'overflowX': 'auto'},
                     style_cell={
@@ -174,69 +131,72 @@ app.layout = dbc.Container(
 
 # Callbacks
 @app.callback(
-    Output('file-status', 'children'),
-    Output('filtered-table', 'columns'),
-    Input('upload-file', 'contents'),
-    State('upload-file', 'filename')
+    Output('file1-status', 'children'),
+    Input('upload-file1', 'contents'),
+    State('upload-file1', 'filename')
 )
-def handle_file_upload(contents, filenames):
+def handle_file1_upload(contents, filename):
+    global file1_df
     if contents is None:
-        return "", []
+        return ""
 
-    global merged_df
-    columns = []
-    messages = []
     try:
-        for content, filename in zip(contents, filenames):
-            file_data = decode_file(content)
-            df, file_type = data_clean_auto(file_data)
+        file_data = decode_file(contents)
+        df, file_type = data_clean_auto(file_data)
 
-            if file_type == "file1":
-                merged_df = df if merged_df.empty else pd.concat([merged_df, df], ignore_index=True)
-                columns = [{'name': col, 'id': col} for col in df.columns]
-                messages.append(f"File '{filename}' uploaded successfully (Node Events).")
-            elif file_type == "file2":
-                merged_df = df if merged_df.empty else pd.merge(merged_df, df, on="Node Alias", how="inner")
-                columns = [{'name': col, 'id': col} for col in df.columns]
-                messages.append(f"File '{filename}' uploaded successfully (Taj Data).")
-
-        return " | ".join(messages), columns
+        if file_type != "file1":
+            return f"Error: Uploaded file is not Node Events data."
+        
+        file1_df = df
+        return f"File 1 '{filename}' uploaded successfully."
     except Exception as e:
-        return f"Error: {e}", []
+        return f"Error: {e}"
 
 
 @app.callback(
-    Output('filtered-table', 'data'),
-    Input('filter-button', 'n_clicks'),
-    State('date-range', 'start_date'),
-    State('date-range', 'end_date'),
-    State('downtime-dropdown', 'value')
+    Output('file2-status', 'children'),
+    Input('upload-file2', 'contents'),
+    State('upload-file2', 'filename')
 )
-def filter_data(n_clicks, start_date, end_date, downtime_value):
-    if n_clicks is None or merged_df.empty:
-        return []
+def handle_file2_upload(contents, filename):
+    global file2_df
+    if contents is None:
+        return ""
 
-    filtered_df = merged_df.copy()
+    try:
+        file_data = decode_file(contents)
+        df, file_type = data_clean_auto(file_data)
 
-    # Apply filters
-    if start_date and end_date:
-        filtered_df = filtered_df[
-            (filtered_df['Alarm Time'] >= pd.to_datetime(start_date)) &
-            (filtered_df['Alarm Time'] <= pd.to_datetime(end_date))
-        ]
-
-    if downtime_value:
-        if downtime_value == '1-3':
-            filtered_df = filtered_df[filtered_df['Downtime Count'] <= 3]
-        elif downtime_value == '4-5':
-            filtered_df = filtered_df[(filtered_df['Downtime Count'] >= 4) & (filtered_df['Downtime Count'] <= 5)]
-        elif downtime_value == '>5':
-            filtered_df = filtered_df[filtered_df['Downtime Count'] > 5]
-        elif downtime_value == '>10':
-            filtered_df = filtered_df[filtered_df['Downtime Count'] > 10]
-
-    return filtered_df.to_dict('records')
+        if file_type != "file2":
+            return f"Error: Uploaded file is not Taj Data."
+        
+        file2_df = df
+        return f"File 2 '{filename}' uploaded successfully."
+    except Exception as e:
+        return f"Error: {e}"
 
 
+@app.callback(
+    Output('merged-table', 'columns'),
+    Output('merged-table', 'data'),
+    Input('file1-status', 'children'),
+    Input('file2-status', 'children')
+)
+def update_merged_table(file1_status, file2_status):
+    global file1_df, file2_df, merged_df
+    if file1_df.empty or file2_df.empty:
+        return [], []
+
+    # Merge based on Node Alias
+    try:
+        merged_df = pd.merge(file1_df, file2_df, on="Node Alias", how="inner")
+        columns = [{"name": col, "id": col} for col in merged_df.columns]
+        data = merged_df.to_dict("records")
+        return columns, data
+    except Exception as e:
+        return [], []
+
+
+# Run the app
 if __name__ == '__main__':
     app.run_server(debug=True, host="0.0.0.0", port=8050)
