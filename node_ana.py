@@ -1,12 +1,14 @@
+#!/usr/bin/env python
+# coding: utf-8
+
 import os
 import pandas as pd
+import re
 import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State
 import dash_table
 import dash_bootstrap_components as dbc
-import plotly.express as px
-import plotly.graph_objs as go
 import io
 import base64
 
@@ -14,6 +16,12 @@ import base64
 file1_df = pd.DataFrame()  # For File 1 (Node Events)
 file2_df = pd.DataFrame()  # For File 2 (Taj Data)
 merged_df = pd.DataFrame()  # Combined dataframe
+
+# Custom styles
+custom_label_style = {"color": "#000", "fontWeight": "bold"}
+custom_dropdown_style = {"width": "100%"}
+success_message_style = {"color": "green", "fontWeight": "bold"}
+error_message_style = {"color": "red", "fontWeight": "bold"}
 
 # Function to clean and process data based on structure
 def data_clean_auto(file_path):
@@ -60,7 +68,6 @@ def data_clean_auto(file_path):
         print(f"Error during data cleaning: {e}")
         return pd.DataFrame(), None
 
-
 # Helper function to decode uploaded file data
 def decode_file(contents):
     try:
@@ -70,10 +77,8 @@ def decode_file(contents):
     except Exception as e:
         raise ValueError(f"Error decoding file: {e}")
 
-
 # Initialize the Dash app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
-server = app.server
 
 # Layout
 app.layout = dbc.Container(
@@ -92,37 +97,72 @@ app.layout = dbc.Container(
             )
         ),
         # File Upload Section
-        dbc.Row([
-            dbc.Col([
-                html.Label("Upload Node Events File (File 1):", style={"fontWeight": "bold"}),
-                dcc.Upload(id='upload-file1', children=html.Button('Upload File 1'), multiple=False),
-                html.Div(id='file1-status', style={"color": "green", "fontWeight": "bold"})
+        dbc.Row([ 
+            dbc.Col([ 
+                html.Label("Upload Node File:", style=custom_label_style),
+                dcc.Upload(id='upload-file1', children=html.Button('Upload Node File'), multiple=False),
+                html.Div(id='file1-status', style=success_message_style)
             ], width=6),
-            dbc.Col([
-                html.Label("Upload Taj Data File (File 2):", style={"fontWeight": "bold"}),
-                dcc.Upload(id='upload-file2', children=html.Button('Upload File 2'), multiple=False),
-                html.Div(id='file2-status', style={"color": "green", "fontWeight": "bold"})
-            ], width=6)
+            dbc.Col([ 
+                html.Label("Upload Second File:", style=custom_label_style),
+                dcc.Upload(id='upload-file2', children=html.Button('Upload File- 2'), multiple=False),
+                html.Div(id='file2-status', style=success_message_style)
+            ], width=6),
         ], className="mb-4"),
-        # Dropdown for Client Selection
+        # Filters Section
         dbc.Row(
-            dbc.Col(
-                dcc.Dropdown(
-                    id='client-dropdown',
-                    options=[],
-                    placeholder="Select a Client",
-                    style={"color": "black"}
+            [
+                dbc.Col(
+                    [
+                        html.Label("Select Date Range:", style=custom_label_style),
+                        dcc.DatePickerRange(
+                            id='date-range',
+                            start_date=None,
+                            end_date=None,
+                            display_format='YYYY-MM-DD',
+                            style=custom_dropdown_style
+                        )
+                    ],
+                    width=4
                 ),
-                width=6
-            ),
+                dbc.Col(
+                    [
+                        html.Label("Select Downtime Count:", style=custom_label_style),
+                        dcc.Dropdown(
+                            id='downtime-dropdown',
+                            options=[
+                                {'label': '1-3', 'value': '1-3'},
+                                {'label': '4-5', 'value': '4-5'},
+                                {'label': '>5', 'value': '>5'},
+                                {'label': '>10', 'value': '>10'}
+                            ],
+                            value=None,
+                            placeholder='Select downtime count criteria',
+                            style=custom_dropdown_style
+                        )
+                    ],
+                    width=4
+                ),
+                dbc.Col(
+                    [
+                        html.Br(),
+                        dbc.Button("Apply Filters", id='filter-button', color="success")
+                    ],
+                    width=4
+                )
+            ],
             className="mb-4"
         ),
         # Data Table Section
         dbc.Row(
             dbc.Col(
                 dash_table.DataTable(
-                    id='merged-table',
-                    columns=[],
+                    id='filtered-table',
+                    columns=[
+                        {'name': 'Node Alias', 'id': 'Node Alias'},
+                        {'name': 'Availability', 'id': 'Availability'},
+                        {'name': 'Downtime Count', 'id': 'Downtime Count'}
+                    ],
                     style_table={'overflowX': 'auto'},
                     style_cell={
                         'textAlign': 'left',
@@ -134,137 +174,109 @@ app.layout = dbc.Container(
                         'backgroundColor': '#1a1a1a',
                         'color': 'white',
                         'fontWeight': 'bold'
-                    }
+                    },
+                    style_data_conditional=[
+                        {
+                            'if': {
+                                'filter_query': '{Availability} >= 97',
+                                'column_id': 'Availability'
+                            },
+                            'backgroundColor': '#28a745',  # Green
+                            'color': 'white'
+                        },
+                        {
+                            'if': {
+                                'filter_query': '{Availability} >= 90 && {Availability} < 97',
+                                'column_id': 'Availability'
+                            },
+                            'backgroundColor': '#ffc107',  # Yellow
+                            'color': 'black'
+                        },
+                        {
+                            'if': {
+                                'filter_query': '{Availability} < 90',
+                                'column_id': 'Availability'
+                            },
+                            'backgroundColor': '#dc3545',  # Red
+                            'color': 'white'
+                        }
+                    ]
                 ),
                 width=12
             )
         ),
-        # Graphs Section
-        dbc.Row([
-            dbc.Col(
-                dcc.Graph(id='packet-loss-graph', style={"height": "300px"}),
-                width=6
-            ),
-            dbc.Col(
-                dcc.Graph(id='latency-graph', style={"height": "300px"}),
-                width=6
-            )
-        ]),
-        dbc.Row(
-            dbc.Col(
-                dcc.Graph(id='availability-graph', style={"height": "300px"}),
-                width=12
-            )
-        )
     ]
 )
 
 # Callbacks
 @app.callback(
     Output('file1-status', 'children'),
-    Input('upload-file1', 'contents'),
-    State('upload-file1', 'filename')
+    Input('upload-file1', 'contents')
 )
-def handle_file1_upload(contents, filename):
-    global file1_df
+def handle_file1_upload(contents):
     if contents is None:
         return ""
-
     try:
-        file_data = decode_file(contents)
-        df, file_type = data_clean_auto(file_data)
-
-        if file_type != "file1":
-            return f"Error: Uploaded file is not Node Events data."
-        
-        file1_df = df
-        return f"File 1 '{filename}' uploaded successfully."
+        file1 = decode_file(contents)
+        global file1_df
+        df1, file_type = data_clean_auto(file1)
+        if file_type == 'file1':
+            file1_df = df1
+        return "File 1 uploaded and processed successfully!"
     except Exception as e:
         return f"Error: {e}"
-
 
 @app.callback(
     Output('file2-status', 'children'),
-    Input('upload-file2', 'contents'),
-    State('upload-file2', 'filename')
+    Input('upload-file2', 'contents')
 )
-def handle_file2_upload(contents, filename):
-    global file2_df
+def handle_file2_upload(contents):
     if contents is None:
         return ""
-
     try:
-        file_data = decode_file(contents)
-        df, file_type = data_clean_auto(file_data)
-
-        if file_type != "file2":
-            return f"Error: Uploaded file is not Taj Data."
-        
-        file2_df = df
-        return f"File 2 '{filename}' uploaded successfully."
+        file2 = decode_file(contents)
+        global file2_df
+        df2, file_type = data_clean_auto(file2)
+        if file_type == 'file2':
+            file2_df = df2
+        return "File 2 uploaded and processed successfully!"
     except Exception as e:
         return f"Error: {e}"
 
-
 @app.callback(
-    [Output('merged-table', 'columns'),
-     Output('merged-table', 'data'),
-     Output('client-dropdown', 'options')],
-    [Input('file1-status', 'children'),
-     Input('file2-status', 'children')]
+    Output('filtered-table', 'data'),
+    Input('filter-button', 'n_clicks'),
+    State('date-range', 'start_date'),
+    State('date-range', 'end_date'),
+    State('downtime-dropdown', 'value')
 )
-def update_merged_table(file1_status, file2_status):
-    global file1_df, file2_df, merged_df
-    if file1_df.empty or file2_df.empty:
-        return [], [], []
-
-    # Merge based on Node Alias
-    try:
-        merged_df = pd.merge(file1_df, file2_df, on="Node Alias", how="inner")
-        columns = [{"name": col, "id": col} for col in merged_df.columns]
-        data = merged_df.to_dict("records")
-        options = [{"label": client, "value": client} for client in merged_df['Node Alias'].unique()]
-        return columns, data, options
-    except Exception as e:
-        return [], [], []
-
-
-@app.callback(
-    [Output('packet-loss-graph', 'figure'),
-     Output('latency-graph', 'figure'),
-     Output('availability-graph', 'figure')],
-    Input('client-dropdown', 'value')
-)
-def update_graphs(selected_client):
+def filter_data(n_clicks, start_date, end_date, downtime_value):
+    if n_clicks is None or file1_df.empty or file2_df.empty:
+        return []
+    
     global merged_df
-    if not selected_client or merged_df.empty:
-        return go.Figure(), go.Figure(), go.Figure()
+    merged_df = pd.merge(file1_df, file2_df, on="Node Alias", how="inner")  # Merge the files
 
-    client_data = merged_df[merged_df['Node Alias'] == selected_client]
+    # Filter data based on user input
+    filtered_df = merged_df.copy()
 
-    # Packet Loss Graph
-    packet_loss_fig = px.line(
-        client_data, x='Alarm Time', y='Packet Loss(%)',
-        title=f'Packet Loss for {selected_client}',
-        labels={'Alarm Time': 'Time', 'Packet Loss(%)': 'Packet Loss (%)'}
-    )
+    if start_date and end_date:
+        filtered_df = filtered_df[
+            (filtered_df['Alarm Time'] >= pd.to_datetime(start_date)) & 
+            (filtered_df['Alarm Time'] <= pd.to_datetime(end_date))
+        ]
 
-    # Latency Graph
-    latency_fig = px.line(
-        client_data, x='Alarm Time', y='Latency(msec)',
-        title=f'Latency for {selected_client}',
-        labels={'Alarm Time': 'Time', 'Latency(msec)': 'Latency (ms)'}
-    )
+    if downtime_value:
+        if downtime_value == '1-3':
+            filtered_df = filtered_df[filtered_df['Downtime Count'] <= 3]
+        elif downtime_value == '4-5':
+            filtered_df = filtered_df[(filtered_df['Downtime Count'] >= 4) & (filtered_df['Downtime Count'] <= 5)]
+        elif downtime_value == '>5':
+            filtered_df = filtered_df[filtered_df['Downtime Count'] > 5]
+        elif downtime_value == '>10':
+            filtered_df = filtered_df[filtered_df['Downtime Count'] > 10]
 
-    # Availability Graph
-    availability_fig = px.line(
-        client_data, x='Alarm Time', y='Availability',
-        title=f'Availability for {selected_client}',
-        labels={'Alarm Time': 'Time', 'Availability': 'Availability (%)'}
-    )
+    return filtered_df.to_dict('records')
 
-    return packet_loss_fig, latency_fig, availability_fig
-
-# Run the app
 if __name__ == '__main__':
     app.run_server(debug=True, host="0.0.0.0", port=8050)
