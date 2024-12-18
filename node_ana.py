@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
 import os
 import pandas as pd
 import dash
@@ -8,6 +5,8 @@ from dash import dcc, html
 from dash.dependencies import Input, Output, State
 import dash_table
 import dash_bootstrap_components as dbc
+import plotly.express as px
+import plotly.graph_objs as go
 import io
 import base64
 
@@ -74,6 +73,7 @@ def decode_file(contents):
 
 # Initialize the Dash app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
+server = app.server
 
 # Layout
 app.layout = dbc.Container(
@@ -104,6 +104,19 @@ app.layout = dbc.Container(
                 html.Div(id='file2-status', style={"color": "green", "fontWeight": "bold"})
             ], width=6)
         ], className="mb-4"),
+        # Dropdown for Client Selection
+        dbc.Row(
+            dbc.Col(
+                dcc.Dropdown(
+                    id='client-dropdown',
+                    options=[],
+                    placeholder="Select a Client",
+                    style={"color": "black"}
+                ),
+                width=6
+            ),
+            className="mb-4"
+        ),
         # Data Table Section
         dbc.Row(
             dbc.Col(
@@ -125,10 +138,26 @@ app.layout = dbc.Container(
                 ),
                 width=12
             )
+        ),
+        # Graphs Section
+        dbc.Row([
+            dbc.Col(
+                dcc.Graph(id='packet-loss-graph', style={"height": "300px"}),
+                width=6
+            ),
+            dbc.Col(
+                dcc.Graph(id='latency-graph', style={"height": "300px"}),
+                width=6
+            )
+        ]),
+        dbc.Row(
+            dbc.Col(
+                dcc.Graph(id='availability-graph', style={"height": "300px"}),
+                width=12
+            )
         )
     ]
 )
-
 
 # Callbacks
 @app.callback(
@@ -178,25 +207,63 @@ def handle_file2_upload(contents, filename):
 
 
 @app.callback(
-    Output('merged-table', 'columns'),
-    Output('merged-table', 'data'),
-    Input('file1-status', 'children'),
-    Input('file2-status', 'children')
+    [Output('merged-table', 'columns'),
+     Output('merged-table', 'data'),
+     Output('client-dropdown', 'options')],
+    [Input('file1-status', 'children'),
+     Input('file2-status', 'children')]
 )
 def update_merged_table(file1_status, file2_status):
     global file1_df, file2_df, merged_df
     if file1_df.empty or file2_df.empty:
-        return [], []
+        return [], [], []
 
     # Merge based on Node Alias
     try:
         merged_df = pd.merge(file1_df, file2_df, on="Node Alias", how="inner")
         columns = [{"name": col, "id": col} for col in merged_df.columns]
         data = merged_df.to_dict("records")
-        return columns, data
+        options = [{"label": client, "value": client} for client in merged_df['Node Alias'].unique()]
+        return columns, data, options
     except Exception as e:
-        return [], []
+        return [], [], []
 
+
+@app.callback(
+    [Output('packet-loss-graph', 'figure'),
+     Output('latency-graph', 'figure'),
+     Output('availability-graph', 'figure')],
+    Input('client-dropdown', 'value')
+)
+def update_graphs(selected_client):
+    global merged_df
+    if not selected_client or merged_df.empty:
+        return go.Figure(), go.Figure(), go.Figure()
+
+    client_data = merged_df[merged_df['Node Alias'] == selected_client]
+
+    # Packet Loss Graph
+    packet_loss_fig = px.line(
+        client_data, x='Alarm Time', y='Packet Loss(%)',
+        title=f'Packet Loss for {selected_client}',
+        labels={'Alarm Time': 'Time', 'Packet Loss(%)': 'Packet Loss (%)'}
+    )
+
+    # Latency Graph
+    latency_fig = px.line(
+        client_data, x='Alarm Time', y='Latency(msec)',
+        title=f'Latency for {selected_client}',
+        labels={'Alarm Time': 'Time', 'Latency(msec)': 'Latency (ms)'}
+    )
+
+    # Availability Graph
+    availability_fig = px.line(
+        client_data, x='Alarm Time', y='Availability',
+        title=f'Availability for {selected_client}',
+        labels={'Alarm Time': 'Time', 'Availability': 'Availability (%)'}
+    )
+
+    return packet_loss_fig, latency_fig, availability_fig
 
 # Run the app
 if __name__ == '__main__':
