@@ -3,7 +3,6 @@
 
 import os
 import pandas as pd
-import re
 import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State
@@ -11,10 +10,6 @@ import dash_table
 import dash_bootstrap_components as dbc
 import io
 import base64
-
-# Define patterns for file identification
-file1_pattern = r"iBUS-Node-EVENT-TAJ_\d{1,2}(st|nd|rd|th) [A-Za-z]{3} \d{4} \d{2}_\d{2}_\d{2}\.xlsx"
-file2_pattern = r"iBUS-Taj_\d{1,2}(st|nd|rd|th) [A-Za-z]{3} \d{4} \d{2}_\d{2}_\d{2}\.xlsx"
 
 # Global variables for processed data
 merged_df = pd.DataFrame()
@@ -25,11 +20,16 @@ custom_dropdown_style = {"width": "100%"}
 success_message_style = {"color": "green", "fontWeight": "bold"}
 error_message_style = {"color": "red", "fontWeight": "bold"}
 
-# Function to clean data
-def data_clean(file_path, pattern_key):
+# Function to clean and process data based on structure
+def data_clean_auto(file_path):
+    """
+    Automatically detects the type of file based on its columns and processes it.
+    """
     try:
         df = pd.read_excel(file_path)
-        if pattern_key == "file1_pattern":
+
+        # Check the structure and process the file accordingly
+        if 'Event' in df.columns and 'Alarm Time' in df.columns:  # File 1 (Node Events)
             df = df.rename(columns={
                 'Unnamed: 0': 'Sl.no',
                 'Unnamed: 1': 'IP Address',
@@ -41,7 +41,8 @@ def data_clean(file_path, pattern_key):
             df = df.dropna(subset=['Node Alias', 'Alarm Time'])
             df['Alarm Time'] = pd.to_datetime(df['Alarm Time'], errors='coerce')
             df['Downtime Count'] = df.groupby('Node Alias')['Alarm Time'].transform('count')
-        elif pattern_key == "file2_pattern":
+            file_type = "file1"
+        elif 'Availability' in df.columns and 'Latency(msec)' in df.columns:  # File 2 (Taj Data)
             df = df.rename(columns={
                 'Unnamed: 0': 'Node Alias',
                 'Unnamed: 1': 'IP Address',
@@ -53,10 +54,16 @@ def data_clean(file_path, pattern_key):
             df['Availability'] = pd.to_numeric(df['Availability'], errors='coerce')
             df['Latency(msec)'] = pd.to_numeric(df['Latency(msec)'], errors='coerce')
             df = df.dropna(subset=['Packet Loss(%)', 'Availability', 'Latency(msec)'])
-        return df
+            file_type = "file2"
+        else:
+            raise ValueError("Unrecognized file structure. Please check the file.")
+
+        return df, file_type
+
     except Exception as e:
         print(f"Error during data cleaning: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(), None
+
 
 # Helper function to decode uploaded file data
 def decode_file(contents):
@@ -66,6 +73,7 @@ def decode_file(contents):
         return io.BytesIO(decoded)
     except Exception as e:
         raise ValueError(f"Error decoding file: {e}")
+
 
 # Initialize the Dash app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
@@ -89,15 +97,10 @@ app.layout = dbc.Container(
         # File Upload Section
         dbc.Row([
             dbc.Col([
-                html.Label("Upload Node File:", style=custom_label_style),
-                dcc.Upload(id='upload-file1', children=html.Button('Upload Node File'), multiple=False),
-                html.Div(id='file1-status', style=success_message_style)
-            ], width=6),
-            dbc.Col([
-                html.Label("Upload Second File:", style=custom_label_style),
-                dcc.Upload(id='upload-file2', children=html.Button('Upload File- 2'), multiple=False),
-                html.Div(id='file2-status', style=success_message_style)
-            ], width=6),
+                html.Label("Upload File:", style=custom_label_style),
+                dcc.Upload(id='upload-file', children=html.Button('Upload File'), multiple=True),
+                html.Div(id='file-status', style=success_message_style)
+            ], width=12)
         ], className="mb-4"),
         # Filters Section
         dbc.Row(
@@ -144,91 +147,63 @@ app.layout = dbc.Container(
             className="mb-4"
         ),
         # Data Table Section
-# Data Table Section
-dbc.Row(
-    dbc.Col(
-        dash_table.DataTable(
-            id='filtered-table',
-            columns=[
-                {'name': 'Node Alias', 'id': 'Node Alias'},
-                {'name': 'Availability', 'id': 'Availability'},
-                {'name': 'Downtime Count', 'id': 'Downtime Count'}
-            ],
-            style_table={'overflowX': 'auto'},
-            style_cell={
-                'textAlign': 'left',
-                'padding': '10px',
-                'backgroundColor': '#2c2c2c',
-                'color': 'white'
-            },
-            style_header={
-                'backgroundColor': '#1a1a1a',
-                'color': 'white',
-                'fontWeight': 'bold'
-            },
-            style_data_conditional=[
-                {
-                    'if': {
-                        'filter_query': '{Availability} >= 97',
-                        'column_id': 'Availability'
+        dbc.Row(
+            dbc.Col(
+                dash_table.DataTable(
+                    id='filtered-table',
+                    columns=[],
+                    style_table={'overflowX': 'auto'},
+                    style_cell={
+                        'textAlign': 'left',
+                        'padding': '10px',
+                        'backgroundColor': '#2c2c2c',
+                        'color': 'white'
                     },
-                    'backgroundColor': '#28a745',  # Green
-                    'color': 'white'
-                },
-                {
-                    'if': {
-                        'filter_query': '{Availability} >= 90 && {Availability} < 97',
-                        'column_id': 'Availability'
-                    },
-                    'backgroundColor': '#ffc107',  # Yellow
-                    'color': 'black'
-                },
-                {
-                    'if': {
-                        'filter_query': '{Availability} < 90',
-                        'column_id': 'Availability'
-                    },
-                    'backgroundColor': '#dc3545',  # Red
-                    'color': 'white'
-                }
-            ]
-        ),
-        width=12
-    )
+                    style_header={
+                        'backgroundColor': '#1a1a1a',
+                        'color': 'white',
+                        'fontWeight': 'bold'
+                    }
+                ),
+                width=12
+            )
+        )
+    ]
 )
-        ])
+
+
 # Callbacks
 @app.callback(
-    Output('file1-status', 'children'),
-    Input('upload-file1', 'contents')
+    Output('file-status', 'children'),
+    Output('filtered-table', 'columns'),
+    Input('upload-file', 'contents'),
+    State('upload-file', 'filename')
 )
-def handle_file1_upload(contents):
+def handle_file_upload(contents, filenames):
     if contents is None:
-        return ""
-    try:
-        file1 = decode_file(contents)
-        global merged_df
-        df1 = data_clean(file1, "file1_pattern")
-        merged_df = df1  # Store data for filtering
-        return "Node File uploaded successfully!"
-    except Exception as e:
-        return f"Error: {e}"
+        return "", []
 
-@app.callback(
-    Output('file2-status', 'children'),
-    Input('upload-file2', 'contents')
-)
-def handle_file2_upload(contents):
-    if contents is None:
-        return ""
+    global merged_df
+    columns = []
+    messages = []
     try:
-        file2 = decode_file(contents)
-        global merged_df
-        df2 = data_clean(file2, "file2_pattern")
-        merged_df = pd.merge(merged_df, df2, on="Node Alias", how="inner")  # Merge data
-        return "File uploaded successfully!"
+        for content, filename in zip(contents, filenames):
+            file_data = decode_file(content)
+            df, file_type = data_clean_auto(file_data)
+
+            if file_type == "file1":
+                merged_df = df if merged_df.empty else pd.concat([merged_df, df], ignore_index=True)
+                columns = [{'name': col, 'id': col} for col in df.columns]
+                messages.append(f"File '{filename}' uploaded successfully (Node Events).")
+            elif file_type == "file2":
+                merged_df = df if merged_df.empty else pd.merge(merged_df, df, on="Node Alias", how="inner")
+                columns = [{'name': col, 'id': col} for col in df.columns]
+                messages.append(f"File '{filename}' uploaded successfully (Taj Data).")
+
+        return " | ".join(messages), columns
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error: {e}", []
+
 
 @app.callback(
     Output('filtered-table', 'data'),
@@ -240,13 +215,13 @@ def handle_file2_upload(contents):
 def filter_data(n_clicks, start_date, end_date, downtime_value):
     if n_clicks is None or merged_df.empty:
         return []
-    
+
     filtered_df = merged_df.copy()
 
     # Apply filters
     if start_date and end_date:
         filtered_df = filtered_df[
-            (filtered_df['Alarm Time'] >= pd.to_datetime(start_date)) & 
+            (filtered_df['Alarm Time'] >= pd.to_datetime(start_date)) &
             (filtered_df['Alarm Time'] <= pd.to_datetime(end_date))
         ]
 
@@ -261,6 +236,7 @@ def filter_data(n_clicks, start_date, end_date, downtime_value):
             filtered_df = filtered_df[filtered_df['Downtime Count'] > 10]
 
     return filtered_df.to_dict('records')
+
 
 if __name__ == '__main__':
     app.run_server(debug=True, host="0.0.0.0", port=8050)
