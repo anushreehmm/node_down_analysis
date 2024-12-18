@@ -23,7 +23,7 @@ def data_clean_auto(file_path):
     """
     try:
         
-        df = pd.read_excel(file_path, skiprows=4)
+        df = pd.read_excel(file_path, skiprows=5)
 
 
         # Check the structure and process the file accordingly
