@@ -3,7 +3,6 @@
 
 import os
 import pandas as pd
-import re
 import dash
 from dash import dcc, html
 from dash.dependencies import Input, Output, State
@@ -13,9 +12,9 @@ import io
 import base64
 
 # Global variables for processed data
-file1_df = pd.DataFrame()  # For File 1 (Node Events)
-file2_df = pd.DataFrame()  # For File 2 (Taj Data)
-merged_df = pd.DataFrame()  # Combined dataframe
+file1_df = pd.DataFrame()
+file2_df = pd.DataFrame()
+merged_df = pd.DataFrame()
 
 # Custom styles
 custom_label_style = {"color": "#000", "fontWeight": "bold"}
@@ -24,15 +23,14 @@ success_message_style = {"color": "green", "fontWeight": "bold"}
 error_message_style = {"color": "red", "fontWeight": "bold"}
 
 # Function to clean and process data based on structure
-def data_clean_auto(file_path):
+def process_file(file_path, file_type):
     """
-    Automatically detects the type of file based on its columns and processes it.
+    Processes the uploaded file based on its type.
     """
     try:
         df = pd.read_excel(file_path, skiprows=5)
 
-        # Check the structure and process the file accordingly
-        if 'Event' in df.columns and 'Alarm Time' in df.columns:  # File 1 (Node Events)
+        if file_type == "file1":
             df = df.rename(columns={
                 'Unnamed: 0': 'Sl.no',
                 'Unnamed: 1': 'IP Address',
@@ -44,8 +42,7 @@ def data_clean_auto(file_path):
             df = df.dropna(subset=['Node Alias', 'Alarm Time'])
             df['Alarm Time'] = pd.to_datetime(df['Alarm Time'], errors='coerce')
             df['Downtime Count'] = df.groupby('Node Alias')['Alarm Time'].transform('count')
-            file_type = "file1"
-        elif 'Availability(%)' in df.columns and 'Latency(msec)' in df.columns:  # File 2 (Taj Data)
+        elif file_type == "file2":
             df = df.rename(columns={
                 'Node Alias': 'Node Alias',
                 'IP Address': 'IP Address',
@@ -58,15 +55,13 @@ def data_clean_auto(file_path):
             df['Availability'] = pd.to_numeric(df['Availability'], errors='coerce')
             df['Latency(msec)'] = pd.to_numeric(df['Latency(msec)'], errors='coerce')
             df = df.dropna(subset=['Packet Loss(%)', 'Availability', 'Latency(msec)'])
-            file_type = "file2"
         else:
-            raise ValueError("Unrecognized file structure. Please check the file.")
+            raise ValueError("Invalid file type specified.")
 
-        return df, file_type
-
+        return df
     except Exception as e:
-        print(f"Error during data cleaning: {e}")
-        return pd.DataFrame(), None
+        print(f"Error processing file: {e}")
+        return pd.DataFrame()
 
 # Helper function to decode uploaded file data
 def decode_file(contents):
@@ -97,62 +92,50 @@ app.layout = dbc.Container(
             )
         ),
         # File Upload Section
-        dbc.Row([ 
-            dbc.Col([ 
+        dbc.Row([
+            dbc.Col([
                 html.Label("Upload Node File:", style=custom_label_style),
                 dcc.Upload(id='upload-file1', children=html.Button('Upload Node File'), multiple=False),
                 html.Div(id='file1-status', style=success_message_style)
             ], width=6),
-            dbc.Col([ 
+            dbc.Col([
                 html.Label("Upload Second File:", style=custom_label_style),
-                dcc.Upload(id='upload-file2', children=html.Button('Upload File- 2'), multiple=False),
+                dcc.Upload(id='upload-file2', children=html.Button('Upload File 2'), multiple=False),
                 html.Div(id='file2-status', style=success_message_style)
             ], width=6),
         ], className="mb-4"),
         # Filters Section
-        dbc.Row(
-            [
-                dbc.Col(
-                    [
-                        html.Label("Select Date Range:", style=custom_label_style),
-                        dcc.DatePickerRange(
-                            id='date-range',
-                            start_date=None,
-                            end_date=None,
-                            display_format='YYYY-MM-DD',
-                            style=custom_dropdown_style
-                        )
-                    ],
-                    width=4
-                ),
-                dbc.Col(
-                    [
-                        html.Label("Select Downtime Count:", style=custom_label_style),
-                        dcc.Dropdown(
-                            id='downtime-dropdown',
-                            options=[
-                                {'label': '1-3', 'value': '1-3'},
-                                {'label': '4-5', 'value': '4-5'},
-                                {'label': '>5', 'value': '>5'},
-                                {'label': '>10', 'value': '>10'}
-                            ],
-                            value=None,
-                            placeholder='Select downtime count criteria',
-                            style=custom_dropdown_style
-                        )
-                    ],
-                    width=4
-                ),
-                dbc.Col(
-                    [
-                        html.Br(),
-                        dbc.Button("Apply Filters", id='filter-button', color="success")
-                    ],
-                    width=4
+        dbc.Row([
+            dbc.Col([
+                html.Label("Select Date Range:", style=custom_label_style),
+                dcc.DatePickerRange(
+                    id='date-range',
+                    start_date=None,
+                    end_date=None,
+                    display_format='YYYY-MM-DD',
+                    style=custom_dropdown_style
                 )
-            ],
-            className="mb-4"
-        ),
+            ], width=4),
+            dbc.Col([
+                html.Label("Select Downtime Count:", style=custom_label_style),
+                dcc.Dropdown(
+                    id='downtime-dropdown',
+                    options=[
+                        {'label': '1-3', 'value': '1-3'},
+                        {'label': '4-5', 'value': '4-5'},
+                        {'label': '>5', 'value': '>5'},
+                        {'label': '>10', 'value': '>10'}
+                    ],
+                    value=None,
+                    placeholder='Select downtime count criteria',
+                    style=custom_dropdown_style
+                )
+            ], width=4),
+            dbc.Col([
+                html.Br(),
+                dbc.Button("Apply Filters", id='filter-button', color="success")
+            ], width=4)
+        ], className="mb-4"),
         # Data Table Section
         dbc.Row(
             dbc.Col(
@@ -181,7 +164,7 @@ app.layout = dbc.Container(
                                 'filter_query': '{Availability} >= 97',
                                 'column_id': 'Availability'
                             },
-                            'backgroundColor': '#28a745',  # Green
+                            'backgroundColor': '#28a745',
                             'color': 'white'
                         },
                         {
@@ -189,7 +172,7 @@ app.layout = dbc.Container(
                                 'filter_query': '{Availability} >= 90 && {Availability} < 97',
                                 'column_id': 'Availability'
                             },
-                            'backgroundColor': '#ffc107',  # Yellow
+                            'backgroundColor': '#ffc107',
                             'color': 'black'
                         },
                         {
@@ -197,7 +180,7 @@ app.layout = dbc.Container(
                                 'filter_query': '{Availability} < 90',
                                 'column_id': 'Availability'
                             },
-                            'backgroundColor': '#dc3545',  # Red
+                            'backgroundColor': '#dc3545',
                             'color': 'white'
                         }
                     ]
@@ -219,9 +202,7 @@ def handle_file1_upload(contents):
     try:
         file1 = decode_file(contents)
         global file1_df
-        df1, file_type = data_clean_auto(file1)
-        if file_type == 'file1':
-            file1_df = df1
+        file1_df = process_file(file1, "file1")
         return "File 1 uploaded and processed successfully!"
     except Exception as e:
         return f"Error: {e}"
@@ -236,9 +217,7 @@ def handle_file2_upload(contents):
     try:
         file2 = decode_file(contents)
         global file2_df
-        df2, file_type = data_clean_auto(file2)
-        if file_type == 'file2':
-            file2_df = df2
+        file2_df = process_file(file2, "file2")
         return "File 2 uploaded and processed successfully!"
     except Exception as e:
         return f"Error: {e}"
@@ -253,9 +232,9 @@ def handle_file2_upload(contents):
 def filter_data(n_clicks, start_date, end_date, downtime_value):
     if n_clicks is None or file1_df.empty or file2_df.empty:
         return []
-    
+
     global merged_df
-    merged_df = pd.merge(file1_df, file2_df, on="Node Alias", how="inner")  # Merge the files
+    merged_df = pd.merge(file1_df, file2_df, on="Node Alias", how="inner")
 
     # Filter data based on user input
     filtered_df = merged_df.copy()
