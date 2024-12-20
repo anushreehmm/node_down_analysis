@@ -1,6 +1,7 @@
 # callbacks.py
 from dash.dependencies import Input, Output, State
 from data_processing import process_file, decode_file  # Import from data_processing.py
+import pandas as pd
 
 # Global data variables
 file1_df = None
