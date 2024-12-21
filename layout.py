@@ -1,5 +1,5 @@
 from dash import dcc, html
-import dash_table
+from dash import dash_table
 import dash_bootstrap_components as dbc
 
 # Custom styles
