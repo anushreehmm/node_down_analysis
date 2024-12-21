@@ -1,18 +1,14 @@
-# app.py
-import dash
-import dash_bootstrap_components as dbc
-from dash import html
-import os
-
-# Import the layout and callbacks
-from layout import layout
+from dash import Dash
+from layout import create_layout
 from callbacks import register_callbacks
 
-# Initialize the app
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
+# Initialize the Dash app
+app = Dash(__name__)
+app.title = "Node Availability Report"
+server = app.server
 
-# Set the app layout
-app.layout = layout
+# Set the layout
+app.layout = create_layout()
 
 # Register callbacks
 register_callbacks(app)
