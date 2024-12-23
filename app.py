@@ -6,6 +6,7 @@ import dash_bootstrap_components as dbc
 from layout import layout
 from callbacks import register_callbacks
 
+
 # Initialize the Dash app
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
 
