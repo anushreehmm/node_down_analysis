@@ -1,18 +1,19 @@
-from dash import Dash
+#!/usr/bin/env python
+# coding: utf-8
+
+import dash
 import dash_bootstrap_components as dbc
-from layout import app_layout
+from layout import layout
 from callbacks import register_callbacks
 
-# Initialize the Dash app with a Bootstrap theme
-app = Dash(__name__, external_stylesheets=[dbc.themes.SOLAR])
+# Initialize the Dash app
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
 
-# Set the app layout
-app.layout = app_layout
+# Set the layout
+app.layout = layout
 
-# Register the callbacks
+# Register callbacks
 register_callbacks(app)
 
-if __name__ == "__main__":
-    import os
-    port = int(os.environ.get("PORT", 8050))
-    app.run_server(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    app.run_server(debug=True, host="0.0.0.0", port=8050)
